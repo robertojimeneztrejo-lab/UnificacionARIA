@@ -49,7 +49,7 @@ with col1:
         <p>Busca software con licencias 100% gratuitas para uso académico e institucional.</p>
     </div>
     """, unsafe_allow_html=True)
-    st.page_link("pages/1_💼_Pro_Licencias.py", label="Ir a Pro Licencias", icon="💼")
+    st.page_link("pages/1_Pro_Licencias.py", label="Ir a Pro Licencias", icon="💼")
 
 with col2:
     st.markdown("""
@@ -58,4 +58,4 @@ with col2:
         <p>Busca membresías profesionales e institucionales gratuitas para programas de posgrado.</p>
     </div>
     """, unsafe_allow_html=True)
-    st.page_link("pages/2_🎓_Pro_Membresías.py", label="Ir a Pro Membresías", icon="🎓")
+    st.page_link("pages/2_Pro_Membresias.py", label="Ir a Pro Membresías", icon="🎓")
