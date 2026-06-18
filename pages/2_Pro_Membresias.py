@@ -10,6 +10,7 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from pypdf import PdfReader
 
 st.set_page_config(
     page_title="ARIA Membresías",
@@ -218,12 +219,10 @@ html, body, [data-testid="stAppViewContainer"] {
 .badge { font-size: 0.7rem; font-weight: 600; padding: 2px 9px; border-radius: 3px; font-family: 'Source Sans 3', sans-serif; }
 .badge-type-institucional { background: #E8F0FA; color: #1A3F6F; border: 1px solid #B8CEE8; }
 .badge-type-corporativa   { background: #FDF3E3; color: #7D4E0F; border: 1px solid #E8C88A; }
+.badge-type-academica     { background: #EAF3F7; color: #2D5A6E; border: 1px solid #B8DCE8; }
+.badge-type-estudiantil   { background: #E8F5EE; color: #1A5232; border: 1px solid #A9D6BC; }
 .badge-type-individual    { background: #F2EEF9; color: #4A2D8A; border: 1px solid #C5B3E8; }
-.badge-type-organizacional{ background: #EAF3F7; color: #2D5A6E; border: 1px solid #B8DCE8; }
-.badge-type-academica     { background: #E8F0FA; color: #1A3F6F; border: 1px solid #B8CEE8; }
-.badge-type-student       { background: #E8F5EE; color: #1A5232; border: 1px solid #A9D6BC; }
-.badge-type-researchers   { background: #F5EFE3; color: #6B4A1F; border: 1px solid #DEC79A; }
-.badge-type-partner       { background: #FDEDF0; color: #8A1F3D; border: 1px solid #E8AFC0; }
+.badge-type-asociado      { background: #FDEDF0; color: #8A1F3D; border: 1px solid #E8AFC0; }
 .badge-region { background: #F0F3F8; color: #2D3D52; border: 1px solid #C0CBDA; }
 .badge-access { background: #E8F5EE; color: #1A5232; border: 1px solid #A9D6BC; }
 .badge-priority { background: var(--gold); color: #FFFFFF; border: 1px solid var(--gold-light); }
@@ -318,7 +317,7 @@ def save_to_sheets(results, decisions):
 
         data = json.loads(raw)
         if data.get("status") == "ok":
-            return True, data.get("added", 0)
+            return True, data
         return False, data.get("message", "Error desconocido")
 
     except json.JSONDecodeError:
@@ -326,6 +325,9 @@ def save_to_sheets(results, decisions):
     except Exception as ex:
         return False, str(ex)
 
+
+# ── Configuración fija ────────────────────────────────────────────────────────
+MAX_RESULTS = 5
 
 # ── Palabras clave de prioridad ──────────────────────────────────────────────
 KEYWORD_OPTIONS = ["Association", "League", "Alliance", "Society", "Charter",
@@ -368,10 +370,6 @@ with st.sidebar:
                                   help="Gemini expandirá tu tema a variantes semánticas (sinónimos, inglés/español, subcampos) antes de buscar")
 
     st.markdown("---")
-    st.markdown("### 📊 Resultados")
-    num_results = st.slider("Cantidad de resultados", min_value=3, max_value=20, value=8, label_visibility="visible")
-
-    st.markdown("---")
     st.markdown("### 🌎 Región prioritaria")
     reg_norteamerica = st.checkbox("Norteamérica (EE.UU. / Canadá)", value=True)
     reg_europa       = st.checkbox("Europa Occidental, Central y Norte", value=True)
@@ -379,57 +377,63 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 📚 Tipo de membresía")
-    tipo_institucional  = st.checkbox("Institucional", value=True)
-    tipo_corporativa    = st.checkbox("Corporativa", value=True)
-    tipo_individual      = st.checkbox("Individual", value=True)
-    tipo_organizacional = st.checkbox("Organizacional", value=True)
-    tipo_academica       = st.checkbox("Académica", value=True)
-    tipo_student         = st.checkbox("Student", value=True)
-    tipo_researchers     = st.checkbox("Researchers", value=True)
-    tipo_partner         = st.checkbox("Partner", value=True)
+    tipo_institucional = st.checkbox("Institucional", value=True,
+        help="Universidades completas, consorcios, bibliotecas — acceso a nivel organización")
+    tipo_corporativa = st.checkbox("Corporativa", value=True,
+        help="Empresas, clústeres tecnológicos, partners industriales")
+    tipo_academica = st.checkbox("Académica / Docente", value=True,
+        help="Profesores, investigadores titulares, directores de tesis")
+    tipo_estudiantil = st.checkbox("Estudiantil", value=True,
+        help="Pregrado y posgrado con dominio .edu")
+    tipo_individual = st.checkbox("Individual Profesional", value=True,
+        help="Profesionistas independientes, freelance, certificación personal")
+    tipo_asociado = st.checkbox("Asociado / Afiliado", value=True,
+        help="Nivel de entrada más bajo, comunidad o alumni")
 
     st.markdown("---")
     st.markdown("### ⭐ Palabras clave prioritarias")
     st.caption("Si aparecen en el nombre, Gemini les dará prioridad")
     keyword_selections = {}
-    for kw in KEYWORD_OPTIONS:
-        keyword_selections[kw] = st.checkbox(kw, value=True)
+
+    custom_keyword = st.text_input(
+        "Agregar palabra clave (solo esta búsqueda)",
+        placeholder="Ej: Association, League, Alliance, Society, Charter, Royal College, Organization...",
+        key="custom_keyword_input"
+    )
 
     st.markdown("---")
-    st.markdown("### 🔓 Condición de gratuidad")
-    cond_total  = st.checkbox("Gratuidad total", value=True)
-    cond_edu    = st.checkbox("Student Tier (.edu / dominio univ.)", value=True)
-    cond_grant  = st.checkbox("Grant-Based Free Tier", value=True)
-    cond_sandbox= st.checkbox("Institutional Sandbox", value=True)
-    cond_alumni = st.checkbox("Año de Gracia / Alumni Launchpad", value=True)
-    cond_cert   = st.checkbox("Gratuidad por Certificación", value=True)
-    cond_beta   = st.checkbox("Acceso Beta Tester", value=True)
-    cond_prueba = st.checkbox("Prueba Institucional 12 meses", value=True)
+    st.markdown("### 🧭 Modalidad Búsqueda")
+    modalidad_costo = st.radio(
+        "Modalidad",
+        options=["Fase de Negociación", "Vinculación directa"],
+        index=1,
+        label_visibility="collapsed"
+    )
 
-    st.markdown("---")
-    st.markdown("### 🔐 Método de acceso")
-    acc_sso       = st.checkbox("SSO Institucional / IP Whitelist", value=True)
-    acc_edu       = st.checkbox("Dominio .edu verificado", value=True)
-    acc_invitacion= st.checkbox("Invitación / Aprobación previa", value=True)
-    acc_personal  = st.checkbox("Cuenta personal validada", value=True)
+    # Las 8 condiciones quedan fijas en el prompt, ya no son seleccionables en UI
+    if modalidad_costo == "Vinculación directa":
+        cond_total = cond_edu = cond_grant = cond_sandbox = True
+        cond_alumni = cond_cert = cond_beta = cond_prueba = True
+    else:
+        cond_total = cond_edu = cond_grant = cond_sandbox = False
+        cond_alumni = cond_cert = cond_beta = cond_prueba = False
+
 
 
 
 # ── Helpers de filtros ───────────────────────────────────────────────────────
 def build_filters_summary():
-    regiones, tipos, condiciones, accesos, keywords = [], [], [], [], []
+    regiones, tipos, condiciones, keywords = [], [], [], []
     if reg_norteamerica: regiones.append("Norteamérica (EE.UU. y Canadá)")
     if reg_europa:       regiones.append("Europa Occidental, Central y Norte")
     if reg_latam:        regiones.append("América Latina y el Caribe")
 
-    if tipo_institucional:   tipos.append("Institucional")
-    if tipo_corporativa:     tipos.append("Corporativa")
-    if tipo_individual:      tipos.append("Individual")
-    if tipo_organizacional:  tipos.append("Organizacional")
-    if tipo_academica:       tipos.append("Académica")
-    if tipo_student:         tipos.append("Student")
-    if tipo_researchers:     tipos.append("Researchers")
-    if tipo_partner:         tipos.append("Partner")
+    if tipo_institucional: tipos.append("Institucional")
+    if tipo_corporativa:   tipos.append("Corporativa")
+    if tipo_academica:     tipos.append("Académica/Docente")
+    if tipo_estudiantil:   tipos.append("Estudiantil")
+    if tipo_individual:    tipos.append("Individual Profesional")
+    if tipo_asociado:      tipos.append("Asociado/Afiliado")
 
     if cond_total:   condiciones.append("Gratuidad total")
     if cond_edu:     condiciones.append("Student Tier (.edu o dominio universitario)")
@@ -440,19 +444,25 @@ def build_filters_summary():
     if cond_beta:    condiciones.append("Acceso Beta Tester")
     if cond_prueba:  condiciones.append("Prueba institucional de 12 meses")
 
-    if acc_sso:        accesos.append("SSO Institucional o IP Whitelisting")
-    if acc_edu:        accesos.append("Dominio .edu verificado")
-    if acc_invitacion: accesos.append("Invitación o aprobación previa")
-    if acc_personal:   accesos.append("Cuenta personal con validación de perfil")
+    # Métodos de acceso siempre activos (ya no configurables en UI)
+    accesos = [
+        "SSO Institucional o IP Whitelisting",
+        "Dominio .edu verificado",
+        "Invitación o aprobación previa",
+        "Cuenta personal con validación de perfil"
+    ]
 
     for kw, selected in keyword_selections.items():
         if selected:
             keywords.append(kw)
 
+    if custom_keyword and custom_keyword.strip():
+        keywords.append(custom_keyword.strip())
+
     return regiones, tipos, condiciones, accesos, keywords
 
 
-def build_prompt(topic, regiones, tipos, condiciones, accesos, keywords, n, excluidas=None, use_search=True, expandir_tema=True):
+def build_prompt(topic, regiones, tipos, condiciones, accesos, keywords, n, excluidas=None, use_search=True, expandir_tema=True, buscar_pago=False, pdf_topics=None):
     keyword_block = (
         ", ".join(keywords) if keywords
         else "ninguna palabra clave especificada"
@@ -472,13 +482,33 @@ Antes de buscar, genera mentalmente una lista de 5 a 8 sinónimos, términos rel
 Usa TODAS esas variantes como consultas de búsqueda adicionales, no solo el término literal escrito por el usuario. Esto es crítico: muchas organizaciones usan terminología distinta a la del usuario aunque cubran el mismo dominio.
 """
 
-    return f"""Eres un agente especializado en inteligencia de recursos académicos y profesionales. Tu función es identificar, evaluar y catalogar plataformas web que ofrecen membresías, suscripciones o accesos institucionales COMPLETAMENTE GRATUITOS para el sector educativo y de investigación.
+    pdf_topics_block = ""
+    if pdf_topics:
+        ordered_list = chr(10).join(f"{i+1}. {t}" for i, t in enumerate(pdf_topics))
+        pdf_topics_block = f"""
+TEMAS DETECTADOS EN EL DOCUMENTO CARGADO (orden de prioridad, el primero pesa más):
+{ordered_list}
+Usa estos temas como ejes principales de búsqueda, en el orden indicado. El tema #1 debe dominar la mayoría de los resultados; los siguientes se usan para diversificar si el primero no genera suficientes coincidencias. Trátalos con el mismo peso que el tema de búsqueda escrito por el usuario, combinándolos si es necesario.
+"""
+
+    if buscar_pago:
+        objetivo_costo = "que requieran PAGO (membresías de pago estándar, sin necesidad de que sean gratuitas)"
+        regla_costo = "1. Incluye membresías de pago. No es necesario que sean gratuitas ni que tengan condiciones especiales."
+        condiciones_block = "No aplica filtro de gratuidad — incluye cualquier estructura de precio."
+    else:
+        objetivo_costo = "GRATUITAS (sin costo alguno, periodo mínimo 12 meses o 1 año)"
+        regla_costo = "1. Solo membresías COMPLETAMENTE GRATUITAS. Excluye cualquier opción de pago."
+        condiciones_block = (
+            chr(10).join(f"- {c}" for c in condiciones) if condiciones else "- Cualquier condición de gratuidad"
+        )
+
+    return f"""Eres un agente especializado en inteligencia de recursos académicos y profesionales. Tu función es identificar, evaluar y catalogar plataformas web que ofrecen membresías, suscripciones o accesos institucionales para el sector educativo y de investigación.
 
 MODO DE BÚSQUEDA: {search_instruction}
 
 TEMA DE BÚSQUEDA: {topic if topic else "herramientas y recursos académicos generales"}
-{expansion_instruction}
-OBJETIVO: Encuentra exactamente {n} páginas web que ofrezcan membresías académicas o institucionales GRATUITAS (sin costo alguno, periodo mínimo 12 meses o 1 año) para el tema indicado y sus variantes semánticas.
+{expansion_instruction}{pdf_topics_block}
+OBJETIVO: Encuentra exactamente {n} páginas web que ofrezcan membresías académicas o institucionales {objetivo_costo} para el tema indicado y sus variantes semánticas.
 
 REGIONES PRIORITARIAS (busca SOLO en estas):
 {chr(10).join(f"- {r}" for r in regiones) if regiones else "- Sin filtro regional"}
@@ -486,18 +516,21 @@ REGIONES PRIORITARIAS (busca SOLO en estas):
 TIPOS DE MEMBRESÍA A BUSCAR:
 {chr(10).join(f"- {t}" for t in tipos) if tipos else "- Todos los tipos"}
 
-CONDICIONES DE GRATUIDAD ACEPTABLES (al menos una debe cumplirse):
-{chr(10).join(f"- {c}" for c in condiciones) if condiciones else "- Cualquier condición de gratuidad"}
+CONDICIONES ACEPTABLES:
+{condiciones_block}
 
-MÉTODOS DE ACCESO ACEPTABLES:
-{chr(10).join(f"- {a}" for a in accesos) if accesos else "- Cualquier método de acceso"}
+MÉTODOS DE ACCESO ACEPTABLES (siempre se consideran todos):
+- SSO Institucional o IP Whitelisting
+- Dominio .edu verificado
+- Invitación o aprobación previa
+- Cuenta personal con validación de perfil
 
 PALABRAS CLAVE DE PRIORIDAD: Si el nombre oficial de la organización contiene alguna de estas palabras, dale prioridad y aumenta su puntuación (suelen ser asociaciones, ligas, alianzas o colegios profesionales con mayor probabilidad de ofrecer membresías institucionales):
 {keyword_block}
 
 REGLAS OBLIGATORIAS:
-1. Solo membresías COMPLETAMENTE GRATUITAS. Excluye cualquier opción de pago.
-2. El período de acceso gratuito debe ser de 12 meses o 1 año como mínimo.
+{regla_costo}
+2. El período de acceso debe ser de 12 meses o 1 año como mínimo.
 3. Excluye plataformas de: Asia Oriental/Pacífico, Asia del Sur/Central, África, Medio Oriente.
 4. Excluye organismos multilaterales: ONU, UNESCO, FMI, BM, OCDE, OMS, OEA y equivalentes.
 5. Prioriza plataformas con poca visibilidad sobre las ampliamente conocidas, y prioriza aquellas cuyo nombre contenga las palabras clave indicadas.
@@ -520,7 +553,7 @@ FORMATO DE RESPUESTA: Responde ÚNICAMENTE con un array JSON válido, sin texto 
     "beneficios": ["Beneficio 1", "Beneficio 2", "Beneficio 3", "Beneficio 4"],
     "link_membresia": "URL directa al formulario o página para solicitar la membresía",
     "correo_contacto": "Correo de contacto si está disponible públicamente, o 'No disponible'",
-    "tipo_membresia": "Institucional|Corporativa|Individual|Organizacional|Académica|Student|Researchers|Partner",
+    "tipo_membresia": "Institucional|Corporativa|Académica/Docente|Estudiantil|Individual Profesional|Asociado/Afiliado",
     "region": "Norteamérica|Europa|América Latina|Global",
     "puntuacion": 4,
     "url_verificada": true,
@@ -586,9 +619,9 @@ def parse_json_results(raw):
     )
 
 
-def run_search(topic, regiones, tipos, condiciones, accesos, keywords, n, use_search=True, expandir_tema=True):
+def run_search(topic, regiones, tipos, condiciones, accesos, keywords, n, use_search=True, expandir_tema=True, buscar_pago=False, pdf_topics=None):
     excluidas = load_existing_memberships()
-    prompt = build_prompt(topic, regiones, tipos, condiciones, accesos, keywords, n, excluidas, use_search, expandir_tema)
+    prompt = build_prompt(topic, regiones, tipos, condiciones, accesos, keywords, n, excluidas, use_search, expandir_tema, buscar_pago, pdf_topics)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -646,13 +679,16 @@ def render_type_badge(tipo):
     mapping = {
         "institucional": "badge-type-institucional",
         "corporativa": "badge-type-corporativa",
-        "individual": "badge-type-individual",
-        "organizacional": "badge-type-organizacional",
+        "académica/docente": "badge-type-academica",
+        "academica/docente": "badge-type-academica",
         "académica": "badge-type-academica",
         "academica": "badge-type-academica",
-        "student": "badge-type-student",
-        "researchers": "badge-type-researchers",
-        "partner": "badge-type-partner",
+        "estudiantil": "badge-type-estudiantil",
+        "individual profesional": "badge-type-individual",
+        "individual": "badge-type-individual",
+        "asociado/afiliado": "badge-type-asociado",
+        "asociado": "badge-type-asociado",
+        "afiliado": "badge-type-asociado",
     }
     cls = mapping.get(t, "badge-type-institucional")
     return f'<span class="badge {cls}">{tipo}</span>'
@@ -851,9 +887,8 @@ def build_excel(results, topic):
         ("Regiones", ", ".join([r for r in ["Norteamérica" if reg_norteamerica else "", "Europa" if reg_europa else "", "América Latina" if reg_latam else ""] if r])),
         ("Tipos de membresía", ", ".join([t for t, v in [
             ("Institucional", tipo_institucional), ("Corporativa", tipo_corporativa),
-            ("Individual", tipo_individual), ("Organizacional", tipo_organizacional),
-            ("Académica", tipo_academica), ("Student", tipo_student),
-            ("Researchers", tipo_researchers), ("Partner", tipo_partner)] if v])),
+            ("Académica/Docente", tipo_academica), ("Estudiantil", tipo_estudiantil),
+            ("Individual Profesional", tipo_individual), ("Asociado/Afiliado", tipo_asociado)] if v])),
         ("Condiciones de gratuidad", ", ".join([c for c, v in [("Gratuidad total", cond_total), ("Student Tier", cond_edu), ("Grant-Based", cond_grant), ("Sandbox", cond_sandbox), ("Alumni Launchpad", cond_alumni), ("Certificación", cond_cert), ("Beta Tester", cond_beta), ("Prueba 12m", cond_prueba)] if v])),
     ]
     for r_idx, (k, v) in enumerate(meta, start=2):
@@ -888,6 +923,108 @@ def get_researcher_mascot_svg(state="idle"):
 </svg>'''
 
 
+# ── Extracción de temas clave desde dossier o temario PDF ────────────────────
+def extract_topics_from_pdf(pdf_file, max_chars=6000):
+    """
+    Extrae texto del PDF (priorizando secciones de temario/plan de estudios si existen)
+    y usa una llamada a Gemini para identificar 3-6 temas clave de búsqueda.
+    Funciona tanto con dossiers/CVs personales como con planes de estudio o folletos
+    institucionales que listan asignaturas o áreas de conocimiento.
+    Devuelve (lista_de_temas, None) en éxito, o (None, mensaje_error) en fallo.
+    """
+    try:
+        reader = PdfReader(pdf_file)
+        all_pages_text = []
+        for page in reader.pages:
+            all_pages_text.append(page.extract_text() or "")
+
+        full_doc = " ".join(all_pages_text)
+        full_doc = re.sub(r"\s+", " ", full_doc).strip()
+
+        if len(full_doc) < 50:
+            return None, "El PDF no contiene texto extraíble (puede ser un escaneo de imagen sin OCR)."
+
+        keywords_priority = ["asignatura", "plan de estudio", "temario", "contenido",
+                              "índice", "syllabus", "módulo", "unidad", "curso"]
+        priority_text = ""
+        other_text = ""
+        for page_text in all_pages_text:
+            low = page_text.lower()
+            if any(k in low for k in keywords_priority):
+                priority_text += " " + page_text
+            else:
+                other_text += " " + page_text
+
+        combined = re.sub(r"\s+", " ", priority_text).strip()
+        if len(combined) < max_chars:
+            filler = re.sub(r"\s+", " ", other_text).strip()
+            combined = (combined + " " + filler)[:max_chars]
+        else:
+            combined = combined[:max_chars]
+
+        if not api_key:
+            return None, "No hay GEMINI_API_KEY configurada en los Secrets."
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        mini_prompt = f"""Lee el siguiente fragmento de un documento (puede ser un dossier/CV de una persona, un plan de estudios, un temario de asignaturas, o un folleto de un programa académico).
+
+Identifica entre 3 y 6 TEMAS O ÁREAS DE CONOCIMIENTO clave que mejor representen el contenido técnico o académico del documento. Estos temas se usarán para buscar membresías o recursos académicos relacionados, así que deben ser específicos y útiles como término de búsqueda (ej: "bases de datos avanzadas", "ciberseguridad", "inteligencia artificial", "gestión de proyectos tecnológicos"), no genéricos como "educación" o "tecnología".
+
+Responde ÚNICAMENTE con un array JSON de strings, sin texto adicional ni bloques de código. Ejemplo de formato: ["tema 1", "tema 2", "tema 3"]
+
+Fragmento del documento:
+{combined}
+
+Temas clave:"""
+
+        try:
+            response = model.generate_content(
+                mini_prompt,
+                generation_config=genai.types.GenerationConfig(temperature=0.2, max_output_tokens=800)
+            )
+        except Exception as api_err:
+            return None, f"Error al llamar a Gemini: {str(api_err)}"
+
+        try:
+            raw = response.text.strip()
+        except Exception:
+            finish_reason = None
+            try:
+                finish_reason = response.candidates[0].finish_reason
+            except Exception:
+                pass
+            return None, f"Gemini no devolvió texto utilizable (finish_reason={finish_reason}). Puede ser un bloqueo de seguridad o respuesta vacía."
+
+        raw_clean = re.sub(r"```json", "", raw)
+        raw_clean = re.sub(r"```", "", raw_clean).strip()
+
+        try:
+            topics = json.loads(raw_clean)
+            if isinstance(topics, list) and topics:
+                return [str(t).strip() for t in topics if str(t).strip()], None
+        except json.JSONDecodeError:
+            match = re.search(r"\[.*\]", raw_clean, re.DOTALL)
+            if match:
+                try:
+                    topics = json.loads(match.group())
+                    if isinstance(topics, list) and topics:
+                        return [str(t).strip() for t in topics if str(t).strip()], None
+                except json.JSONDecodeError:
+                    pass
+
+            # JSON truncado: rescatar todos los strings completos "..." encontrados
+            rescued = re.findall(r'"([^"]+)"', raw_clean)
+            if rescued:
+                return [s.strip() for s in rescued if s.strip()], None
+
+        return None, f"Gemini respondió pero no en formato JSON esperado. Respuesta cruda: {raw[:300]}"
+
+    except Exception as ex:
+        return None, f"Error inesperado procesando el PDF: {str(ex)}"
+
+
 # ── Main UI ───────────────────────────────────────────────────────────────────
 if "is_searching" not in st.session_state:
     st.session_state.is_searching = False
@@ -903,7 +1040,7 @@ header_placeholder.markdown(f"""
         <div class="inst-logo">🎓</div>
         <div>
             <div class="inst-title">ARIA <span>Membresías</span></div>
-            <div class="inst-subtitle">Sistema de Inteligencia de Recursos Académicos</div>
+            <div class="inst-subtitle">Alliance Recognition &amp; Intelligence Architecture</div>
         </div>
     </div>
     <div class="inst-mascot-box">
@@ -917,7 +1054,9 @@ topic_col, btn_col = st.columns([4, 1])
 with topic_col:
     topic = st.text_input(
         "Tema o dominio de búsqueda",
+        value=st.session_state.get("topic_from_pdf", ""),
         placeholder="Ej: software de análisis estadístico, gestión de referencias, diseño curricular...",
+        key="topic_input"
     )
 with btn_col:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -930,6 +1069,29 @@ if "last_topic" not in st.session_state:
     st.session_state.last_topic = ""
 if "decisions" not in st.session_state:
     st.session_state.decisions = {}
+if "mem_pdf_topics_hidden" not in st.session_state:
+    st.session_state.mem_pdf_topics_hidden = None
+if "mem_trigger_pdf_search" not in st.session_state:
+    st.session_state.mem_trigger_pdf_search = False
+
+with st.expander("📄 O cargar un dossier, temario o plan de estudios en PDF para iniciar la búsqueda automáticamente"):
+    pdf_file = st.file_uploader(
+        "Sube un dossier académico, CV, temario de asignaturas o folleto de programa (PDF)",
+        type=["pdf"],
+        key="mem_pdf_dossier_uploader",
+        help="Se extrae solo el texto (sin imágenes) para detectar temas de búsqueda — no se envía el PDF completo a Gemini"
+    )
+    if pdf_file is not None:
+        if st.button("🔎 Analizar y buscar", key="mem_detect_topic_btn", use_container_width=True):
+            with st.spinner("Analizando el documento..."):
+                detected_topics, error_msg = extract_topics_from_pdf(pdf_file)
+            if detected_topics:
+                st.session_state.mem_pdf_topics_hidden = detected_topics
+                st.session_state.mem_trigger_pdf_search = True
+                st.rerun()
+            else:
+                st.error(f"No se pudieron identificar temas: {error_msg}")
+
 
 
 def do_search():
@@ -940,8 +1102,8 @@ def do_search():
     if not regiones:
         st.warning("Selecciona al menos una región en el panel lateral.")
         return
-    if not condiciones:
-        st.warning("Selecciona al menos una condición de gratuidad.")
+    if modalidad_costo == "Vinculación directa" and not condiciones:
+        st.warning("Selecciona al menos una condición de costo preferencial.")
         return
 
     use_search = modo_busqueda.startswith("🔴")
@@ -953,7 +1115,7 @@ def do_search():
             <div class="inst-logo">🎓</div>
             <div>
                 <div class="inst-title">ARIA <span>Membresías</span></div>
-                <div class="inst-subtitle">Sistema de Inteligencia de Recursos Académicos</div>
+                <div class="inst-subtitle">Alliance Recognition &amp; Intelligence Architecture</div>
             </div>
         </div>
         <div class="inst-mascot-box">
@@ -964,7 +1126,8 @@ def do_search():
     """, unsafe_allow_html=True)
 
     try:
-        results = run_search(topic, regiones, tipos, condiciones, accesos, keywords, num_results, use_search, expandir_tema)
+        pdf_topics = st.session_state.get("mem_pdf_topics_hidden")
+        results = run_search(topic, regiones, tipos, condiciones, accesos, keywords, MAX_RESULTS, use_search, expandir_tema, modalidad_costo == "Fase de Negociación", pdf_topics)
         st.session_state.results = results
         st.session_state.last_topic = topic
         st.session_state.decisions = {}
@@ -978,7 +1141,7 @@ def do_search():
                 <div class="inst-logo">🎓</div>
                 <div>
                     <div class="inst-title">ARIA <span>Membresías</span></div>
-                    <div class="inst-subtitle">Sistema de Inteligencia de Recursos Académicos</div>
+                    <div class="inst-subtitle">Alliance Recognition &amp; Intelligence Architecture</div>
                 </div>
             </div>
             <div class="inst-mascot-box">
@@ -989,7 +1152,8 @@ def do_search():
         """, unsafe_allow_html=True)
 
 
-if buscar:
+if buscar or st.session_state.get("mem_trigger_pdf_search"):
+    st.session_state.mem_trigger_pdf_search = False
     do_search()
 
 # ── Mostrar resultados ────────────────────────────────────────────────────────
@@ -999,7 +1163,7 @@ if st.session_state.results:
     col_status, col_regen, col_excel, col_save = st.columns([2.5, 1.2, 1.2, 1.2])
     with col_status:
         st.markdown(
-            f'<div class="status-bar">✦ {len(results)} membresías gratuitas encontradas</div>',
+            f'<div class="status-bar">✦ {len(results)} membresías encontradas</div>',
             unsafe_allow_html=True
         )
     with col_regen:
@@ -1021,11 +1185,12 @@ if st.session_state.results:
             with st.spinner("Guardando en Google Sheets..."):
                 ok, info = save_to_sheets(results, st.session_state.decisions)
             if ok:
-                added = info if isinstance(info, int) else 0
-                if added > 0:
-                    st.success(f"✓ {added} nuevas membresías guardadas con su estatus")
+                added = info.get("added", 0)
+                updated = info.get("updated", 0)
+                if added or updated:
+                    st.success(f"✓ {added} nuevas · {updated} actualizadas")
                 else:
-                    st.info("Todas ya estaban en el Sheet")
+                    st.info("Sin cambios para guardar")
                 st.cache_data.clear()
             else:
                 st.error(f"Error al guardar: {info}")
