@@ -144,7 +144,8 @@ st.markdown("""
     margin-bottom: 2rem;
     text-align: center;
 }
-.hero h1 { font-size: 2.2rem; margin-bottom: .6rem; }
+.hero h1 { font-size: 2.2rem; margin-bottom: .4rem; }
+.hero .subtitle { color: var(--gold); font-size: .85rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 1.1rem; }
 .hero p { color: #cbd5e1; font-size: 1.05rem; margin: .2rem 0; }
 .card {
     border: 1px solid #1e2d45;
@@ -158,6 +159,7 @@ st.markdown("""
 st.markdown(f"""
 <div class="hero">
     <h1>🧭 Portal ARIA</h1>
+    <p class="subtitle">Alliance Recognition & Intelligence Architecture</p>
     <p>{mensaje_bienvenida()}</p>
     <p>Elige la herramienta que necesitas para tu búsqueda académica.</p>
 </div>
